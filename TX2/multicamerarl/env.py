@@ -13,6 +13,7 @@ import math
 import tf
 import random
 import torch
+from torchvision import transforms
 import scipy.misc as m
 
 
@@ -28,6 +29,7 @@ from sensor_msgs.msg import Image
 from sensor_msgs.msg import Joy
 bridge = CvBridge()
 
+trans = transforms.Compose([transforms.ToPILImage(), transforms.ToTensor()])
 
 class CarlaEnv1():
     def __init__(self, index, bottom_policy):
@@ -128,35 +130,38 @@ class CarlaEnv1():
         cimg = copy.deepcopy(self.img)
         limg = copy.deepcopy(self.img2)
         rimg = copy.deepcopy(self.img3)
+
+        cimg = cimg.astype(np.uint8)
         cimg = cimg[:, :, 0:3]
-        cimg = np.array(cimg, dtype=np.uint8)
-        cimg = m.imresize(cimg, (128, 160))
-        cimg = cimg.astype(np.float64)
-        cimg = cimg.astype(float) / 255.0
+        cimg = cv2.resize(cimg, (160, 128))
+        cimg = trans(cimg)
+        cimg = cimg.unsqueeze(0)
+        cimg = cimg.cuda()
 
+        limg = limg.astype(np.uint8)
         limg = limg[:, :, 0:3]
-        limg = np.array(limg, dtype=np.uint8)
-        limg = m.imresize(limg, (128, 160))
-        limg = limg.astype(np.float64)
-        limg = limg.astype(float) / 255.0
+        limg = cv2.resize(limg, (160, 128))
+        limg = trans(limg)
+        limg = limg.unsqueeze(0)
+        limg = limg.cuda()
 
+        rimg = rimg.astype(np.uint8)
         rimg = rimg[:, :, 0:3]
-        rimg = np.array(rimg, dtype=np.uint8)
-        rimg = m.imresize(rimg, (128, 160))
-        rimg = rimg.astype(np.float64)
-        rimg = rimg.astype(float) / 255.0
+        rimg = cv2.resize(rimg, (160, 128))
+        rimg = trans(rimg)
+        rimg = rimg.unsqueeze(0)
+        rimg = rimg.cuda()
 
-        outc = self.bottom_policy.predict([cimg[None]])
-        outl = self.bottom_policy.predict([limg[None]])
-        outr = self.bottom_policy.predict([rimg[None]])
+        outc = self.bottom_policy(cimg)
+        outl = self.bottom_policy(limg)
+        outr = self.bottom_policy(rimg)
 
-        bottom_c = np.argmax(outc[0][0], axis=1).astype(float)
-        bottom_l = np.argmax(outl[0][0], axis=1).astype(float)
-        bottom_r = np.argmax(outr[0][0], axis=1).astype(float)
-
-        # bottom = bottom_l + bottom_c + bottom_r
-
-        # print(len(bottom))
+        bottom_c = outc.data.cpu().numpy()
+        bottom_c = np.argmax(bottom_c[0], axis=1).astype(float)
+        bottom_l = outl.data.cpu().numpy()
+        bottom_l = np.argmax(bottom_l[0], axis=1).astype(float)
+        bottom_r = outr.data.cpu().numpy()
+        bottom_r = np.argmax(bottom_r[0], axis=1).astype(float)
         bottom_l = (bottom_l / 127).reshape(1, -1)
         bottom_c = (bottom_c / 127).reshape(1, -1)
         bottom_r = (bottom_r / 127).reshape(1, -1)
