@@ -23,20 +23,16 @@ from torch.autograd import Variable
 from collections import deque
 import torch
 import torch.nn as nn
+from torchvision import transforms
 import scipy.misc as m
 
-from keras.models import model_from_json
-import keras.backend as K
-import tensorflow as tf2
-
-#sys.path.append("/home/hxq/multi-navigation/planner")
-#from planner import Planner
 
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 
 bridge = CvBridge()
-
+import borderlinenet
+trans = transforms.Compose([transforms.ToPILImage(), transforms.ToTensor()])
 
 class bottom_pub():
     def __init__(self, bottom_policy):
@@ -94,29 +90,31 @@ class bottom_pub():
 
     def bottom_observation(self):
         cimg = copy.deepcopy(self.img)
+        cimg = cimg.astype(np.uint8)
         cimg = cimg[:, :, 0:3]
-        cimg = np.array(cimg, dtype=np.uint8)
-        cimg = m.imresize(cimg, (128, 160))
-        cimg = cimg.astype(np.float64)
-        cimg = cimg.astype(float) / 255.0
+        cimg = cv2.resize(cimg, (160, 128))
+        cimg = trans(cimg)
+        cimg = cimg.unsqueeze(0)
+        cimg = cimg.cuda()
 
         limg = copy.deepcopy(self.img2)
+        limg = limg.astype(np.uint8)
         limg = limg[:, :, 0:3]
-        limg = np.array(limg, dtype=np.uint8)
-        limg = m.imresize(limg, (128, 160))
-        limg = limg.astype(np.float64)
-        limg = limg.astype(float) / 255.0
+        limg = cv2.resize(limg, (160, 128))
+        limg = trans(limg)
+        limg = limg.unsqueeze(0)
+        limg = limg.cuda()
 
         rimg = copy.deepcopy(self.img3)
+        rimg = rimg.astype(np.uint8)
         rimg = rimg[:, :, 0:3]
-        rimg = np.array(rimg, dtype=np.uint8)
-        rimg = m.imresize(rimg, (128, 160))
-        rimg = rimg.astype(np.float64)
-        rimg = rimg.astype(float) / 255.0
+        rimg = cv2.resize(rimg, (160, 128))
+        rimg = trans(rimg)
+        rimg = rimg.unsqueeze(0)
+        rimg = rimg.cuda()
 
         img = copy.deepcopy(self.img)
         img = img[:, :, 0:3]
-        # cv2.imshow('221111',img)
         img = np.array(img, dtype=np.uint8)
         img = m.imresize(img, (128, 160))
 
@@ -130,15 +128,15 @@ class bottom_pub():
         img3 = np.array(img3, dtype=np.uint8)
         img3 = m.imresize(img3, (128, 160))
 
-        outc = self.bottom_policy.predict([cimg[None]])
-        outl = self.bottom_policy.predict([limg[None]])
-        outr = self.bottom_policy.predict([rimg[None]])
-        bottom_c = np.argmax(outc[0][0], axis=1)
-        bottom_c = bottom_c.tolist()
-        bottom_l = np.argmax(outl[0][0], axis=1)
-        bottom_l = bottom_l.tolist()
-        bottom_r = np.argmax(outr[0][0], axis=1)
-        bottom_r = bottom_r.tolist()
+        outc = self.bottom_policy(cimg)
+        outl = self.bottom_policy(limg)
+        outr = self.bottom_policy(rimg)
+        bottom_c = outc.data.cpu().numpy()
+        bottom_c = np.argmax(bottom_c[0], axis=1)
+        bottom_l = outl.data.cpu().numpy()
+        bottom_l = np.argmax(bottom_l[0], axis=1)
+        bottom_r = outr.data.cpu().numpy()
+        bottom_r = np.argmax(bottom_r[0], axis=1)
 
         img_bg = np.ones([128, 160, 3], np.uint8)
         img_bg = img_bg * 255
@@ -186,29 +184,29 @@ class bottom_pub():
 
 
 if __name__ == '__main__':
-
-    def relu6(x):
-        """Relu 6
-        """
-        return K.relu(x, max_value=6.0)
-
-
-    def hard_swish(x):
-        return x*K.relu(x+3.0, max_value=6.0)/6.0
-
-    def jsonToModel(json_model_path):
-        with open(json_model_path, 'r') as json_file:
-            loaded_model_json = json_file.read()
-            # print(loaded_model_json)
-        model = model_from_json(loaded_model_json, custom_objects={'tf': tf2, 'relu6': relu6,'hard_swish': hard_swish})
+    def getModel(weights_path):
+        '''
+          Initialize model.
+          ## Arguments
+            `img_dims`: Target image dimensions.
+            `img_channels`: Target image channels.
+            `output_dim`: Dimension of model output.
+            `weights_path`: Path to pre-trained model.
+          ## Returns
+            `model`: the pytorch model
+        '''
+        model = borderlinenet.MobileNetV3_Small()
+        # if weights path exists...
+        if weights_path:
+            try:
+                model.load_state_dict(torch.load(weights_path))
+                print("Loaded model from {}".format(weights_path))
+            except:
+                print("Impossible to find weight path. Returning untrained model")
         return model
+    bottom_policy = getModel('./torch_models/best/weights_best.pth')
 
-
-    model_pixel = '/home/nvidia/multicamerarl/model/model_struct0828.json'
-    pixel_weights = '/home/nvidia/multicamerarl/model/weights_040.h5'
-    bottom_policy = jsonToModel(model_pixel)
-    bottom_policy.load_weights(pixel_weights)
     while True:
         pub = bottom_pub(bottom_policy=bottom_policy)
         pub.bottom_observation()
-        time.sleep(0.1)
+        #time.sleep(0.1)
