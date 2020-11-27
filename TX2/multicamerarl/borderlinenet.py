@@ -86,7 +86,6 @@ class MobileNetV3_Small(nn.Module):
             Block(5, 24, 96, 40, hswish(), SeModule(40), 2),
         )
 
-        #self.out1 = nn.AvgPool2d((3,3), stride=(2,2))
         self.out1 = nn.Conv2d(40, 256, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(256)
         self.out2 = nn.PixelShuffle(16)
