@@ -15,7 +15,6 @@ import os
 import logging
 import socket
 import matplotlib.pyplot as plt
-import tf
 
 import torch
 
