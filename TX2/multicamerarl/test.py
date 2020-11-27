@@ -20,6 +20,7 @@ import tf
 import torch
 
 import torch.nn as nn
+import borderlinenet
 
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -30,20 +31,8 @@ def setup_seed(seed):
 
 setup_seed(1)
 
-
-from keras.models import model_from_json
-import keras.backend as K
 import torch
-import keras.backend.tensorflow_backend as ktf
-import tensorflow as tf2
 
-np.set_printoptions(threshold=25000)
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-config = tf2.ConfigProto()
-config.gpu_options.allow_growth = True
-#config.gpu_options.per_process_gpu_memory_fraction = 0.5
-session = tf2.Session(config=config)
-ktf.set_session(session)
 
 from env import CarlaEnv1
 from torch.optim import Adam
@@ -70,11 +59,9 @@ NUM_ENV = 1
 alpha = 0.5
 def run(env, vl_policy , policy_path, action_bound, optimizer):
     # rate = rospy.Rate(5)
-
     global_step = 0
-
     vl_policy.eval()
-    #print(11111111111111111111111111111)
+
     for id in range(MAX_EPISODES):
         obs_bottom_left, obs_bottom_central, obs_bottom_right = env.get_bottom_pixel()
         #print(obs_bottom_left)
@@ -133,25 +120,27 @@ if __name__ == '__main__':
 
     vl_file = vl_policy_path + '/stage1_2460 episode_2516'    #'/Stage1_7500'   #1460  1200 1040 660 620 600 560 500
 
-    def relu6(x):
-        """Relu 6
-        """
-        return K.relu(x, max_value=6.0)
-
-    def hard_swish(x):
-        return x*K.relu(x+3.0, max_value=6.0)/6.0
-
-    def jsonToModel(json_model_path):
-        with open(json_model_path, 'r') as json_file:
-            loaded_model_json = json_file.read()
-        model = model_from_json(loaded_model_json, custom_objects={'tf': tf2, 'relu6': relu6,'hard_swish': hard_swish})
+    def getModel(weights_path):
+        '''
+          Initialize model.
+          ## Arguments
+            `img_dims`: Target image dimensions.
+            `img_channels`: Target image channels.
+            `output_dim`: Dimension of model output.
+            `weights_path`: Path to pre-trained model.
+          ## Returns
+            `model`: the pytorch model
+        '''
+        model = borderlinenet.MobileNetV3_Small()
+        # if weights path exists...
+        if weights_path:
+            try:
+                model.load_state_dict(torch.load(weights_path))
+                print("Loaded model from {}".format(weights_path))
+            except:
+                print("Impossible to find weight path. Returning untrained model")
         return model
-
-    model_pixel = '/home/nvidia/MVRL_Outdoor/multicamerarl/model/model_struct0828.json'
-    pixel_weights = '/home/nvidia/MVRL_Outdoor/multicamerarl/model/weights_040.h5'
-    bottom_policy = jsonToModel(model_pixel)
-    bottom_policy.load_weights(pixel_weights)
-
+    bottom_policy = getModel('./torch_models/best/weights_best.pth')
 
     if os.path.exists(vl_file):
         print('####################################')
@@ -160,7 +149,6 @@ if __name__ == '__main__':
         state_dict = torch.load(vl_file)
         vl_policy.load_state_dict(state_dict)
 
-        #print(1111111111111111111)
     else:
         print('#####################################')
         print('############Start Training###########')
@@ -172,6 +160,4 @@ if __name__ == '__main__':
         run(env=env, vl_policy = vl_policy, policy_path=vl_policy_path, action_bound=action_bound, optimizer=opt)
     except KeyboardInterrupt:
         pass
-
-
 
